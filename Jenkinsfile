@@ -13,7 +13,7 @@ pipeline {
     }
 
     environment {
-        DOCKERHUB_USER = 'sohail@bluell.se'   // <- change me to your Docker Hub username
+        DOCKERHUB_USER = 'bluells'   // <- change me to your Docker Hub username
         IMAGE_NAME     = 'my-app'                 // <-S change me if your repo name differs
         APP_NAME       = 'my-app'
         SSH_TARGET     = 'rootk@127.0.0.1'
