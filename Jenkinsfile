@@ -1,0 +1,115 @@
+pipeline {
+    agent {
+        docker {
+            image 'docker:27-cli'
+            args '-v /var/run/docker.sock:/var/run/docker.sock --network host'
+        }
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        timeout(time: 20, unit: 'MINUTES')
+    }
+
+    environment {
+        DOCKERHUB_USER = 'sohail@bluell.se'   // <- change me to your Docker Hub username
+        IMAGE_NAME     = 'my-app'                 // <-S change me if your repo name differs
+        APP_NAME       = 'my-app'
+        SSH_TARGET     = 'rootk@127.0.0.1'
+        SSH_PORT       = '2222'
+    }
+
+    stages {
+        stage('Test') {
+            steps {
+                sh '''
+                    docker run --rm -v "$WORKSPACE":/app -w /app node:20-alpine node --check app.js
+                '''
+            }
+        }
+
+        stage('Version') {
+            steps {
+                sh '''
+                    apk add --no-cache curl jq >/dev/null
+
+                    TAGS=$(curl -fsS "https://hub.docker.com/v2/repositories/${DOCKERHUB_USER}/${IMAGE_NAME}/tags?page_size=100" \
+                           | jq -r '.results[]?.name' 2>/dev/null || true)
+
+                    CUR=$(echo "$TAGS" | grep -E '^[0-9]+[.][0-9]+([.][0-9]+)?$' \
+                          | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+                    CUR=${CUR:-1.0}
+
+                    MAJOR=${CUR%%.*}
+                    REST=${CUR#*.}
+                    MINOR=${REST%%.*}
+                    case "$REST" in
+                        *.*) PATCH=${REST#*.} ;;
+                        *)   PATCH=0 ;;
+                    esac
+
+                    NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+                    echo "Current version: ${CUR}  ->  Next version: ${NEW_VERSION}"
+                    env.NEW_VERSION="$NEW_VERSION"
+                '''
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh '''
+                    docker build \
+                      -t "${DOCKERHUB_USER}/${IMAGE_NAME}:${NEW_VERSION}" \
+                      -t "${DOCKERHUB_USER}/${IMAGE_NAME}:latest" .
+                '''
+            }
+        }
+
+        stage('Push') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-cred',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS')]) {
+                    sh '''
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker push "${DOCKERHUB_USER}/${IMAGE_NAME}:${NEW_VERSION}"
+                        docker push "${DOCKERHUB_USER}/${IMAGE_NAME}:latest"
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                withCredentials([file(credentialsId: 'vm-ssh-key', variable: 'SSH_KEY')]) {
+                    sh '''
+                        cp "$SSH_KEY" /tmp/vm_key && chmod 600 /tmp/vm_key
+
+                        ssh -i /tmp/vm_key -p "$SSH_PORT" \
+                            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                            "$SSH_TARGET" \
+                            "set -e
+                             docker pull ${DOCKERHUB_USER}/${IMAGE_NAME}:${NEW_VERSION}
+                             docker rm -f ${APP_NAME} 2>/dev/null || true
+                             docker run -d --name ${APP_NAME} --restart unless-stopped \
+                               -p 3000:3000 ${DOCKERHUB_USER}/${IMAGE_NAME}:${NEW_VERSION}"
+
+                        rm -f /tmp/vm_key
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Build, push and deploy completed. Version: ${env.NEW_VERSION}"
+        }
+        failure {
+            echo 'Pipeline failed - check the stage logs above.'
+        }
+    }
+}
