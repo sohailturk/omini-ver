@@ -53,27 +53,72 @@ pipeline {
     }
 }
 
-        stage('Version') {
-            steps {
-                script {
-                    env.NEW_VERSION = sh(
-                        script: '''
-                            apk add --no-cache curl jq >/dev/null 2>&1
-                            TAGS=$(curl -fsS "https://hub.docker.com/v2/repositories/${DOCKERHUB_USER}/${IMAGE_NAME}/tags?page_size=100" \
-                                   | jq -r '.results[]?.name' 2>/dev/null || true)
-                            CUR=$(echo "$TAGS" | grep -E '^[0-9]+[.][0-9]+([.][0-9]+)?$' \
-                                  | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
-                            CUR=${CUR:-1.0}
-                            MAJOR=${CUR%%.*}; REST=${CUR#*.}; MINOR=${REST%%.*}
-                            case "$REST" in *.*) PATCH=${REST#*.} ;; *) PATCH=0 ;; esac
-                            echo "${MAJOR}.${MINOR}.$((PATCH + 1))"
-                        ''',
-                        returnStdout: true
-                    ).trim()
-                    echo "Next version: ${env.NEW_VERSION}"
-                }
-            }
+        // stage('Version') {
+        //     steps {
+        //         script {
+        //             env.NEW_VERSION = sh(
+        //                 script: '''
+        //                     apk add --no-cache curl jq >/dev/null 2>&1
+        //                     TAGS=$(curl -fsS "https://hub.docker.com/v2/repositories/${DOCKERHUB_USER}/${IMAGE_NAME}/tags?page_size=100" \
+        //                            | jq -r '.results[]?.name' 2>/dev/null || true)
+        //                     CUR=$(echo "$TAGS" | grep -E '^[0-9]+[.][0-9]+([.][0-9]+)?$' \
+        //                           | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+        //                     CUR=${CUR:-1.0}
+        //                     MAJOR=${CUR%%.*}; REST=${CUR#*.}; MINOR=${REST%%.*}
+        //                     case "$REST" in *.*) PATCH=${REST#*.} ;; *) PATCH=0 ;; esac
+        //                     echo "${MAJOR}.${MINOR}.$((PATCH + 1))"
+        //                 ''',
+        //                 returnStdout: true
+        //             ).trim()
+        //             echo "Next version: ${env.NEW_VERSION}"
+        //         }
+        //     }
+        // }
+
+stage('Version') {
+    steps {
+        script {
+            env.NEW_VERSION = sh(
+                script: '''
+                    docker run --rm \
+                      -e DOCKERHUB_USER \
+                      -e IMAGE_NAME \
+                      alpine:3.20 sh -c '
+                        set -e
+
+                        apk add --no-cache curl jq >/dev/null 2>&1
+
+                        TAGS=$(curl -fsS \
+                          "https://hub.docker.com/v2/repositories/${DOCKERHUB_USER}/${IMAGE_NAME}/tags?page_size=100" \
+                          | jq -r ".results[]?.name")
+
+                        CUR=$(echo "$TAGS" \
+                          | grep -E "^[0-9]+[.][0-9]+([.][0-9]+)?$" \
+                          | sort -t. -k1,1n -k2,2n -k3,3n \
+                          | tail -1)
+
+                        CUR=${CUR:-1.0}
+
+                        MAJOR=${CUR%%.*}
+                        REST=${CUR#*.}
+                        MINOR=${REST%%.*}
+
+                        case "$REST" in
+                          *.*) PATCH=${REST#*.} ;;
+                          *) PATCH=0 ;;
+                        esac
+
+                        echo "${MAJOR}.${MINOR}.$((PATCH + 1))"
+                      '
+                ''',
+                returnStdout: true
+            ).trim()
+
+            echo "Next version: ${env.NEW_VERSION}"
         }
+    }
+}
+
 
         stage('Build') {
             steps {
