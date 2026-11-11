@@ -1,10 +1,16 @@
 pipeline {
+    // agent {
+    //     docker {
+    //         image 'docker:27-cli'
+    //         args '-v /var/run/docker.sock:/var/run/docker.sock --network host'
+    //     }
+    // }
     agent {
-        docker {
-            image 'docker:27-cli'
-            args '-v /var/run/docker.sock:/var/run/docker.sock --network host'
-        }
+    docker {
+        image 'docker:27-cli'
+        args '-v /var/run/docker.sock:/var/run/docker.sock --group-add 127 --network host'
     }
+}
 
     options {
         timestamps()
