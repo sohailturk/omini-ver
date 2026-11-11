@@ -13,7 +13,7 @@ pipeline {
     }
 
     environment {
-        DOCKERHUB_USER = 'bluells'
+        DOCKERHUB_USER = 'sohail@bluell.se'
         IMAGE_NAME     = 'my-app'
         APP_NAME       = 'my-app'
         SSH_TARGET     = 'root@127.0.0.1'
