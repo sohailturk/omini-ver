@@ -24,32 +24,58 @@ pipeline {
     }
 
     stages {
+        // stage('Test') {
+        //     steps {
+        //         sh '''
+        //             echo "=== Jenkins workspace ==="
+        //             pwd
+        //             ls -la
+
+        //             echo "=== Check app.js ==="
+        //             test -f app.js && echo "app.js EXISTS" || echo "app.js MISSING"
+
+        //             # FIX #2 — inherit the workspace via --volumes-from instead of a host bind-mount
+        //             echo "=== Docker mount (via --volumes-from) ==="
+        //             docker run --rm \
+        //               --volumes-from "$(hostname)" \
+        //               alpine:3.20 \
+        //               ls -la "$WORKSPACE"
+
+        //             echo "=== Node syntax check ==="
+        //             docker run --rm \
+        //               --volumes-from "$(hostname)" \
+        //               -w "$WORKSPACE" \
+        //               node:20-alpine \
+        //               node --check app.js
+        //         '''
+        //     }
+        // }
         stage('Test') {
-            steps {
-                sh '''
-                    echo "=== Jenkins workspace ==="
-                    pwd
-                    ls -la
+    steps {
+        sh '''
+            echo "=== Jenkins workspace ==="
+            pwd
+            ls -la
 
-                    echo "=== Check app.js ==="
-                    test -f app.js && echo "app.js EXISTS" || echo "app.js MISSING"
+            test -f app.js && echo "app.js EXISTS" || { echo "app.js MISSING"; exit 1; }
 
-                    # FIX #2 — inherit the workspace via --volumes-from instead of a host bind-mount
-                    echo "=== Docker mount (via --volumes-from) ==="
-                    docker run --rm \
-                      --volumes-from "$(hostname)" \
-                      alpine:3.20 \
-                      ls -la "$WORKSPACE"
+            # --network host makes `hostname` return the HOST's hostname,
+            # so pull the real container ID out of cgroups instead.
+            CID=$(grep -oE '[0-9a-f]{64}' /proc/self/cgroup 2>/dev/null | head -1)
+            if [ -z "$CID" ] || ! docker inspect "$CID" >/dev/null 2>&1; then
+                CID=$(cat /etc/hostname)
+            fi
+            echo "Agent container: $CID"
 
-                    echo "=== Node syntax check ==="
-                    docker run --rm \
-                      --volumes-from "$(hostname)" \
-                      -w "$WORKSPACE" \
-                      node:20-alpine \
-                      node --check app.js
-                '''
-            }
-        }
+            echo "=== Docker mount (via --volumes-from $CID) ==="
+            docker run --rm --volumes-from "$CID" alpine:3.20 ls -la "$WORKSPACE"
+
+            echo "=== Node syntax check ==="
+            docker run --rm --volumes-from "$CID" -w "$WORKSPACE" \\
+                node:20-alpine node --check app.js
+        '''
+    }
+}
 
         stage('Version') {
             steps {
