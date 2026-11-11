@@ -27,11 +27,31 @@ pipeline {
     }
 
     stages {
+        // stage('Test') {
+        //     steps {
+        //         sh 'docker run --rm -v "$WORKSPACE":/app -w /app node:20-alpine node --check app.js'
+        //     }
+        // }
+
         stage('Test') {
-            steps {
-                sh 'docker run --rm -v "$WORKSPACE":/app -w /app node:20-alpine node --check app.js'
-            }
-        }
+    steps {
+        sh '''
+            echo "=== Jenkins workspace ==="
+            pwd
+            ls -la
+
+            echo "=== Check app.js ==="
+            test -f app.js && echo "app.js EXISTS" || echo "app.js MISSING"
+
+            echo "=== Docker mount ==="
+            docker run --rm \
+              -v "$WORKSPACE":/app \
+              -w /app \
+              alpine:3.20 \
+              ls -la /app
+        '''
+    }
+}
 
         stage('Version') {
             steps {
